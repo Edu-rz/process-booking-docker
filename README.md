@@ -1,6 +1,6 @@
-# Welcome to your CDK TypeScript project
+# Process Booking Docker - CDK TypeScript project
 
-This is a blank project for CDK development with TypeScript.
+This is a project to preprocess events and store analytics convert it to parquet files and then upload data to a S3 service.
 
 The `cdk.json` file tells the CDK Toolkit how to execute your app.
 
