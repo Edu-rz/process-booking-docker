@@ -1,7 +1,8 @@
 import json
 import boto3
+from botocore.stub import Stubber
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -27,122 +28,148 @@ def validate_timestamp_format(date_str, field_name):
     except ValueError:
         raise ValueError(f"El campo '{field_name}' debe estar en formato ISO 8601 (YYYY-MM-DDTHH:MM:SS).")
 
+def logger(content):
+    print("[LAMBDA] - " + datetime.utcnow().strftime('%d/%m/%Y, %H-%M-%S') + " - LOG " + content)
+
+# Campos requeridos y sus tipos esperados
+required_fields = ['booking_id', 'booking_date', 'status', 'user_id', 'salon_id', 'employee_id', 'payment_id', 'district_id', 'service_id', 'price']
+field_types = {
+    'booking_id': int,
+    'booking_date': 'timestamp',
+    'status': int,
+    'user_id': int,
+    'salon_id': int,
+    'employee_id': int,
+    'payment_id': int,
+    'district_id': int,
+    'service_id': int,
+    'price': float
+}
+
+lima_tz = timezone(timedelta(hours=-5))
+timestamp_precision = 'ms'
+
+# Crear un esquema de Parquet
+schema = pa.schema([
+    ('booking_id', pa.int16()),
+    ('booking_date', pa.timestamp(timestamp_precision, tz='America/Lima')),
+    ('status', pa.int16()),
+    ('user_id', pa.int16()),
+    ('salon_id', pa.int16()),
+    ('employee_id', pa.int16()),
+    ('payment_id', pa.int16()),
+    ('district_id', pa.int16()),
+    ('service_id', pa.int16()),
+    ('price', pa.float32())
+])
+
 def handler(event, context):  
     try:
+        logger(f"🚀  Iniciando función handler.")
+        print(event)
         mensaje = json.loads(event['body'])
-        print(mensaje)
-
-        # Convertir los valores que deberían ser enteros
+        
         mensaje['booking_id'] = int(mensaje['booking_id'])
         mensaje['status'] = int(mensaje['status'])
         mensaje['user_id'] = int(mensaje['user_id'])
         mensaje['salon_id'] = int(mensaje['salon_id'])
         mensaje['employee_id'] = int(mensaje['employee_id'])
         mensaje['payment_id'] = int(mensaje['payment_id'])
+        mensaje['district_id'] = int(mensaje['payment_id'])
+        mensaje['service_id'] = int(mensaje['payment_id'])
+        mensaje['price'] = float(mensaje['price'])
 
-        print("#################")
-        print(mensaje)
-        print("#################")
-
-        # Campos requeridos y sus tipos esperados
-        required_fields = ['booking_id', 'booking_date', 'status', 'user_id', 'salon_id', 'employee_id', 'payment_id']
-        field_types = {
-            'booking_id': int,
-            'booking_date': 'timestamp',
-            'status': int,
-            'user_id': int,
-            'salon_id': int,
-            'employee_id': int,
-            'payment_id': int
-        }
-        
+        logger("☑️  Mensaje recibido y cargado exitosamente")
         
         # Validación de campos requeridos y tipos
         validate_required_fields(mensaje, required_fields)
-        print("#################")
-        print("PASO VALIDACION 1")
-        print("#################")
+        logger("☑️  Validación de campos requeridos exitosa")
 
         validate_field_types(mensaje, field_types)
-        print("#################")
-        print("PASO VALIDACION 2")
-        print("#################")
+        logger("☑️  Validación de tipo de campos exitosa")
         
-        
-        # Crear un esquema de Parquet
-        schema = pa.schema([
-            ('booking_id', pa.int32()),
-            ('booking_date', pa.timestamp('s')),
-            ('status', pa.int32()),
-            ('user_id', pa.int32()),
-            ('salon_id', pa.int32()),
-            ('employee_id', pa.int32()),
-            ('payment_id', pa.int32())
-        ])
-        
-        print("#################")
-        print(schema)
-        print("#################")
-        
-        # Convertir el campo 'booking_date' a un objeto datetime
-        booking_date = datetime.fromisoformat(mensaje['booking_date'])
-        
-        # Crear una tabla de Parquet
-        table = pa.Table.from_pydict({
+        BUCKET_NAME = 'analytics-bucket-s3'
+        s3_client = boto3.client('s3')
+        today = datetime.utcnow().strftime('%Y-%m-%d')
+
+        # Listar archivos que comiencen con la fecha de hoy
+        response = s3_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=today)
+        existing_key = None
+
+        if 'Contents' in response:
+            for obj in response['Contents']:
+                if obj['Key'].startswith(today):
+                    existing_key = obj['Key']
+                    break
+
+        date_str = mensaje['booking_date']
+        dt_obj = datetime.fromisoformat(date_str)
+        dt_obj_lima = dt_obj.replace(tzinfo=timezone.utc).astimezone(lima_tz)
+
+        timestamp_s = int(dt_obj_lima.timestamp() * 1000)
+
+        new_data = pa.Table.from_pydict({
             'booking_id': [mensaje['booking_id']],
-            'booking_date': [booking_date],
+            'booking_date': [timestamp_s],
             'status': [mensaje['status']],
             'user_id': [mensaje['user_id']],
             'salon_id': [mensaje['salon_id']],
             'employee_id': [mensaje['employee_id']],
-            'payment_id': [mensaje['payment_id']]
+            'payment_id': [mensaje['payment_id']],
+            'district_id': [mensaje['district_id']],
+            'service_id': [mensaje['service_id']],
+            'price': [mensaje['price']],
         }, schema=schema)
-        
-        print("#################")
-        print(table)
-        print("#################")
-        
-        # Generar un nombre único para el archivo Parquet
-        timestamp = datetime.utcnow().strftime('%Y-%m-%dT%H-%M-%S')
-        file_name = f"{timestamp}_{uuid.uuid4()}.parquet"
-        
-        print("#################")
-        print(timestamp)
-        print(file_name)
-        print("#################")
-        
-        # Escribir el archivo Parquet en S3
-        BUCKET_NAME = 'analytics-bucket-s3'
-        s3_client = boto3.client('s3')
-        pq.write_table(table, f"/tmp/{file_name}")
+
+        if existing_key:
+            logger(f"☑️  Archivo existente encontrado: {existing_key}")
+
+            # Descargar archivo
+            s3_client.download_file(BUCKET_NAME, existing_key, '/tmp/existing.parquet')
+            table = pq.read_table('/tmp/existing.parquet')
+
+            combined_table = pa.concat_tables([table, new_data])
+            logger("☑️  Datos combinados exitosamente")
+
+        else:
+            logger("☑️  No se encontró archivo existente. Creando nuevo.")
+            combined_table = new_data
+
+        # Guardar datos combinados en un archivo Parquet temporal
+        file_name = f"{today}_data.parquet"
+        pq.write_table(combined_table, f"/tmp/{file_name}")
+
+        # Subir archivo a S3
         s3_client.upload_file(f"/tmp/{file_name}", BUCKET_NAME, file_name)
-        
-        print(f"Reserva {mensaje['booking_id']} almacenada en {file_name}")
-        
+        logger(f"☑️  Archivo {file_name} subido a S3")
+
         return {
             "statusCode": 200,
-            "body": "Reserva subida satisfactoriamente"
+            "body": "Reserva procesada satisfactoriamente"
         }
 
     except (ValueError, TypeError) as e:
+        logger(f"🔴  Ocurrió un error: {str(e)}")
         return {
             "statusCode": 400,
             "body": json.dumps({"error": str(e)})
-        }
+}
 
 def testHandler():
-    body = {
+    body1 = '''{
         "booking_id": "1",
         "booking_date": "2024-10-06T20:00:00",
         "status": "1",
         "user_id": "1",
         "salon_id": "1",
         "employee_id": "1",
-        "payment_id": "1"
-    }
-    a = ''' {\r\n  "booking_id": "1",\r\n  "booking_date": "2024-10-06T20:00:00",\r\n  "status": "1",\r\n  "user_id": "1",\r\n  "salon_id": "1",\r\n  "employee_id": "1",\r\n  "payment_id": "1"\r\n} '''
-
-    response = handler({'body': a}, None)
-    print(response)
+        "payment_id": "1",
+        "district_id": "1",
+        "service_id": "2",
+        "price": "100.50"
+        }'''
+    body = ''' {\r\n  "booking_id": "1",\r\n  "booking_date": "2024-10-06T20:00:00",\r\n  "status": "1",\r\n  "user_id": "1",\r\n  "salon_id": "1",\r\n  "employee_id": "1",\r\n  "payment_id": "1",\r\n  "district_id": "1",\r\n  "service_id": "2",\r\n  "price": "100.50"\r\n  } '''
+    response = handler({'body': body1}, None)
+    logger(response.get('body'))
 
 # testHandler()
