@@ -66,6 +66,7 @@ def handler(event, context):
         logger(f"🚀  Iniciando función handler.")
         print(event)
         mensaje = json.loads(event['body'])
+        print(mensaje)
         
         mensaje['salon_id'] = int(mensaje['salon_id'])
         mensaje['service_id'] = int(mensaje['service_id'])
