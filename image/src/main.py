@@ -32,17 +32,16 @@ def logger(content):
     print("[LAMBDA] - " + datetime.utcnow().strftime('%d/%m/%Y, %H-%M-%S') + " - LOG " + content)
 
 # Campos requeridos y sus tipos esperados
-required_fields = ['booking_id', 'booking_date', 'status', 'user_id', 'salon_id', 'employee_id', 'payment_id', 'district_id', 'service_id', 'price']
+required_fields = ['booking_id', 'booking_date', 'status', 'user_id', 'salon_id', 'payment_id', 'service_id', 'service_name', 'price']
 field_types = {
-    'booking_id': int,
+    'booking_id': str,
     'booking_date': 'timestamp',
-    'status': int,
-    'user_id': int,
+    'status': str,
+    'user_id': str,
     'salon_id': int,
-    'employee_id': int,
-    'payment_id': int,
-    'district_id': int,
+    'payment_id': str,
     'service_id': int,
+    'service_name': str,
     'price': float
 }
 
@@ -51,15 +50,14 @@ timestamp_precision = 'ms'
 
 # Crear un esquema de Parquet
 schema = pa.schema([
-    ('booking_id', pa.int16()),
+    ('booking_id', pa.string()),
     ('booking_date', pa.timestamp(timestamp_precision, tz='America/Lima')),
-    ('status', pa.int16()),
-    ('user_id', pa.int16()),
+    ('status', pa.string()),
+    ('user_id', pa.string()),
     ('salon_id', pa.int16()),
-    ('employee_id', pa.int16()),
-    ('payment_id', pa.int16()),
-    ('district_id', pa.int16()),
+    ('payment_id', pa.string()),
     ('service_id', pa.int16()),
+    ('service_name', pa.string()),
     ('price', pa.float32())
 ])
 
@@ -69,14 +67,8 @@ def handler(event, context):
         print(event)
         mensaje = json.loads(event['body'])
         
-        mensaje['booking_id'] = int(mensaje['booking_id'])
-        mensaje['status'] = int(mensaje['status'])
-        mensaje['user_id'] = int(mensaje['user_id'])
         mensaje['salon_id'] = int(mensaje['salon_id'])
-        mensaje['employee_id'] = int(mensaje['employee_id'])
-        mensaje['payment_id'] = int(mensaje['payment_id'])
-        mensaje['district_id'] = int(mensaje['payment_id'])
-        mensaje['service_id'] = int(mensaje['payment_id'])
+        mensaje['service_id'] = int(mensaje['service_id'])
         mensaje['price'] = float(mensaje['price'])
 
         logger("☑️  Mensaje recibido y cargado exitosamente")
@@ -114,10 +106,9 @@ def handler(event, context):
             'status': [mensaje['status']],
             'user_id': [mensaje['user_id']],
             'salon_id': [mensaje['salon_id']],
-            'employee_id': [mensaje['employee_id']],
             'payment_id': [mensaje['payment_id']],
-            'district_id': [mensaje['district_id']],
             'service_id': [mensaje['service_id']],
+            'service_name': [mensaje['service_name']],
             'price': [mensaje['price']],
         }, schema=schema)
 
@@ -162,10 +153,9 @@ def testHandler():
         "status": "1",
         "user_id": "1",
         "salon_id": "1",
-        "employee_id": "1",
         "payment_id": "1",
-        "district_id": "1",
         "service_id": "2",
+        "service_name": "Hair cut",
         "price": "100.50"
         }'''
     body = ''' {\r\n  "booking_id": "1",\r\n  "booking_date": "2024-10-06T20:00:00",\r\n  "status": "1",\r\n  "user_id": "1",\r\n  "salon_id": "1",\r\n  "employee_id": "1",\r\n  "payment_id": "1",\r\n  "district_id": "1",\r\n  "service_id": "2",\r\n  "price": "100.50"\r\n  } '''
